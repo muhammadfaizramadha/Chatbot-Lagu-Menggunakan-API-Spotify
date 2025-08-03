@@ -47,58 +47,29 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user = update.effective_user
     await update.message.reply_html(
         f"👋 Halo, {user.mention_html()}!\n\n"
-        "Saya adalah bot musik multifungsi. Kirimkan saya judul lagu atau nama artis untuk memulai pencarian.\n\n"
-        "Gunakan perintah /cari [judul lagu], /album, atau /artist untuk fitur lainnya.",
+        "Saya adalah bot musik multifungsi. Gunakan perintah /cari, /album, atau /artist untuk menjelajahi fitur-fitur yang ada.",
     )
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Mengirim pesan bantuan saat pengguna mengirim /help."""
     await update.message.reply_text(
         "Berikut cara menggunakan saya:\n\n"
-        "*FITUR LAGU:*\n"
-        "🎵 /cari [judul lagu/artis] - Untuk mencari lagu spesifik.\n"
-        "✍️ Kamu juga bisa langsung mengetikkan judul lagu atau artis tanpa perintah apa pun!\n\n"
+        "*FITUR PENCARIAN:*\n"
+        "🔎 /cari - Menampilkan menu pencarian.\n"
+        "🎵 /caritrack [nama lagu] - Mencari lagu beserta detail albumnya.\n"
+        "🎤 /cariartist [nama artis] - Mencari artis dan statistiknya.\n"
+        "💿 /carialbum [nama album] - Mencari album dan detailnya.\n\n"
         "*FITUR ALBUM:*\n"
         "💿 /album - Menampilkan menu fitur album.\n"
-        "🔎 /getalbum [nama album] - Mencari detail album.\n"
         "🎲 /randomalbum - Menampilkan 5 album acak.\n"
         "✨ /getnewreleases - Menampilkan 5 rilis album terbaru.\n\n"
         "*FITUR ARTIS:*\n"
         "👤 /artist - Menampilkan menu fitur artis.\n"
-        "🎤 /getartist [nama artis] - Mencari detail artis.\n"
         "🎲 /randomartist - Menampilkan 5 artis acak.\n"
         "💿 /getartistalbums [nama artis] - Menampilkan album dari artis.\n"
         "🏆 /gettoptracks [nama artis] - Menampilkan lagu terpopuler dari artis.\n"
-        "🤝 /getrelated [nama artis] - Menampilkan artis serupa."
+        "� /getrelated [nama artis] - Menampilkan artis serupa."
     )
-
-async def search_music(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Fungsi utama untuk mencari musik di Spotify."""
-    if context.args:
-        query = " ".join(context.args)
-    elif update.message.text:
-        query = update.message.text
-    else:
-        await update.message.reply_text("Tolong berikan judul lagu atau nama artis untuk saya cari.")
-        return
-
-    await update.message.reply_text(f"🔍 Mencari lagu '{query}' di Spotify...")
-
-    try:
-        results = sp.search(q=query, limit=5, type='track')
-        tracks = results['tracks']['items']
-
-        if not tracks:
-            safe_query = escape_markdown(query, version=2)
-            await update.message.reply_text(f"Maaf, saya tidak dapat menemukan lagu untuk *'{safe_query}'*\\. Coba kata kunci lain\\.", parse_mode='MarkdownV2')
-            return
-
-        for track in tracks:
-            await send_track_info(update, context, track)
-
-    except Exception as e:
-        logger.error(f"Error saat mencari musik: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat berkomunikasi dengan Spotify. Coba lagi nanti.")
 
 # --- Fungsi Pembantu (Helpers) ---
 
@@ -122,17 +93,19 @@ async def send_album_info(update: Update, context: ContextTypes.DEFAULT_TYPE, al
     else:
         await update.message.reply_text(caption, parse_mode='MarkdownV2')
 
-async def send_artist_info(update: Update, context: ContextTypes.DEFAULT_TYPE, artist: dict):
-    """Fungsi pembantu untuk mengirim informasi artis yang ringkas."""
+async def send_artist_info_detailed(update: Update, context: ContextTypes.DEFAULT_TYPE, artist: dict):
+    """Fungsi pembantu untuk mengirim informasi artis yang detail."""
     artist_name = escape_markdown(artist['name'], version=2)
     spotify_url = artist['external_urls']['spotify']
     artist_image_url = artist['images'][0]['url'] if artist['images'] else None
     genres = escape_markdown(", ".join(artist['genres']) or "Tidak ada genre", version=2)
     popularity = artist['popularity']
+    followers = artist['followers']['total']
 
     caption = (
         f"🎤 *Artis:* {artist_name}\n"
         f"🔥 *Popularitas:* {popularity}/100\n"
+        f"👥 *Pengikut:* {followers:,}\n"
         f"🏷️ *Genre:* {genres}\n\n"
         f"[Buka di Spotify]({spotify_url})"
     )
@@ -142,276 +115,191 @@ async def send_artist_info(update: Update, context: ContextTypes.DEFAULT_TYPE, a
     else:
         await update.message.reply_text(caption, parse_mode='MarkdownV2')
 
-async def send_track_info(update: Update, context: ContextTypes.DEFAULT_TYPE, track: dict):
-    """Fungsi pembantu untuk mengirim informasi lagu yang ringkas."""
-    track_name = escape_markdown(track['name'], version=2)
-    artists = escape_markdown(", ".join([artist['name'] for artist in track['artists']]), version=2)
-    album_name = escape_markdown(track['album']['name'], version=2)
-    spotify_url = track['external_urls']['spotify']
-    album_cover_url = track['album']['images'][0]['url'] if track['album']['images'] else None
+async def send_album_info_detailed(update: Update, context: ContextTypes.DEFAULT_TYPE, album: dict):
+    """Fungsi pembantu untuk mengirim informasi album yang detail."""
+    album_name = escape_markdown(album['name'], version=2)
+    artists = escape_markdown(", ".join([artist['name'] for artist in album['artists']]), version=2)
+    spotify_url = album['external_urls']['spotify']
+    album_cover_url = album['images'][0]['url'] if album['images'] else None
+    release_date = escape_markdown(album['release_date'], version=2)
+    total_tracks = album['total_tracks']
+    album_type = escape_markdown(album['album_type'], version=2)
 
     caption = (
-        f"🎵 *Lagu:* {track_name}\n"
+        f"💿 *Album:* {album_name}\n"
         f"👤 *Artis:* {artists}\n"
-        f"💿 *Album:* {album_name}\n\n"
+        f"🏷️ *Tipe:* {album_type}\n"
+        f"🎶 *Total Lagu:* {total_tracks}\n"
+        f"🗓️ *Tanggal Rilis:* {release_date}\n\n"
         f"[Buka di Spotify]({spotify_url})"
     )
-    
+
     if album_cover_url:
         await context.bot.send_photo(chat_id=update.effective_chat.id, photo=album_cover_url, caption=caption, parse_mode='MarkdownV2')
     else:
-            await update.message.reply_text(caption, parse_mode='MarkdownV2')
+        await update.message.reply_text(caption, parse_mode='MarkdownV2')
 
-# --- Fitur Album ---
-
-async def album_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Menampilkan menu untuk fitur-fitur terkait album."""
+# --- Fitur Pencarian Baru ---
+async def search_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Menampilkan menu untuk fitur-fitur pencarian."""
     await update.message.reply_text(
-        "Selamat datang di Menu Album!\n\n"
-        "Berikut adalah perintah yang bisa kamu gunakan:\n\n"
-        "🔎 /getalbum [nama album]\nUntuk mencari detail album spesifik.\n\n"
-        "🎲 /randomalbum\nUntuk menampilkan 5 album acak.\n\n"
-        "✨ /getnewreleases\nUntuk menampilkan 5 album rilis terbaru.",
+        "Selamat datang di Menu Pencarian!\n\n"
+        "Gunakan perintah berikut untuk mencari berdasarkan kategori:\n\n"
+        "🎵 /caritrack [nama lagu]\n"
+        "🎤 /cariartist [nama artis]\n"
+        "💿 /carialbum [nama album]",
         parse_mode='Markdown'
     )
 
-async def get_album_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mencari dan menampilkan detail dari sebuah album spesifik."""
+async def search_tracks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mencari lagu dan menampilkan detailnya beserta info album."""
     if not context.args:
-        await update.message.reply_text("Tolong berikan nama album. Contoh: /getalbum My Beautiful Dark Twisted Fantasy")
+        await update.message.reply_text("Tolong berikan nama lagu. Contoh: /caritrack Bohemian Rhapsody")
         return
-
     query = " ".join(context.args)
-    await update.message.reply_text(f"🔍 Mencari album '{query}'...")
+    await update.message.reply_text(f"🔍 Mencari lagu '{query}'...")
 
     try:
-        results = sp.search(q=query, limit=1, type='album')
-        album_results = results['albums']['items']
-
-        if not album_results:
-            safe_query = escape_markdown(query, version=2)
-            await update.message.reply_text(f"Maaf, album *'{safe_query}'* tidak ditemukan\\.", parse_mode='MarkdownV2')
+        results = sp.search(q=query, limit=3, type='track') # Batasi 3 agar tidak spam
+        tracks = results['tracks']['items']
+        if not tracks:
+            await update.message.reply_text(f"Maaf, lagu '{escape_markdown(query, version=2)}' tidak ditemukan\\.", parse_mode='MarkdownV2')
             return
 
-        album_id = album_results[0]['id']
-        album = sp.album(album_id)
+        for track in tracks:
+            track_name = escape_markdown(track['name'], version=2)
+            track_url = track['external_urls']['spotify']
+            track_artists = escape_markdown(", ".join([a['name'] for a in track['artists']]), version=2)
+            
+            # Info Album
+            album_obj = track['album']
+            album_name = escape_markdown(album_obj['name'], version=2)
+            album_url = album_obj['external_urls']['spotify']
+            album_release = escape_markdown(album_obj['release_date'], version=2)
+            album_total_tracks = album_obj['total_tracks']
+            album_cover_url = album_obj['images'][0]['url'] if album_obj['images'] else None
 
-        album_name = escape_markdown(album['name'], version=2)
-        artists = escape_markdown(", ".join([artist['name'] for artist in album['artists']]), version=2)
-        release_date = escape_markdown(album['release_date'], version=2)
-        total_tracks = album['total_tracks']
-        spotify_url = album['external_urls']['spotify']
-        genres = escape_markdown(", ".join(album['genres']) or "Tidak ada genre", version=2)
-        album_cover_url = album['images'][0]['url'] if album['images'] else None
+            caption = (
+                f"🎵 *Lagu Ditemukan:* [{track_name}]({track_url})\n"
+                f"👤 *Oleh:* {track_artists}\n\n"
+                f"*\\-\\-\\- Detail Album \\-\\-\\-*\n"
+                f"💿 *Album:* [{album_name}]({album_url})\n"
+                f"🔢 *Total Lagu:* {album_total_tracks}\n"
+                f"🗓️ *Rilis:* {album_release}"
+            )
 
-        caption = (
-            f"💿 *Album:* {album_name}\n"
-            f"👤 *Artis:* {artists}\n"
-            f"🗓️ *Tanggal Rilis:* {release_date}\n"
-            f"🎶 *Total Lagu:* {total_tracks}\n"
-            f"🏷️ *Genre:* {genres}\n\n"
-            f"[Buka di Spotify]({spotify_url})"
-        )
-
-        if album_cover_url:
-            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=album_cover_url, caption=caption, parse_mode='MarkdownV2')
-        else:
-            await update.message.reply_text(caption, parse_mode='MarkdownV2')
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil detail album: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengambil detail album.")
-
-async def get_random_albums(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mengambil dan menampilkan 5 album secara acak."""
-    await update.message.reply_text("🎲 Mengambil 5 album acak...")
-    try:
-        random_char = random.choice("abcdefghijklmnopqrstuvwxyz")
-        random_offset = random.randint(0, 500)
-        results = sp.search(q=f'year:2000-2025 track:{random_char}', type='album', limit=5, offset=random_offset)
-        
-        albums = results['albums']['items']
-        if not albums:
-            await update.message.reply_text("Gagal mendapatkan album acak, coba lagi!")
-            return
-
-        for album in albums:
-            await send_album_info(update, context, album)
+            if album_cover_url:
+                await context.bot.send_photo(chat_id=update.effective_chat.id, photo=album_cover_url, caption=caption, parse_mode='MarkdownV2')
+            else:
+                await update.message.reply_text(caption, parse_mode='MarkdownV2')
 
     except Exception as e:
-        logger.error(f"Error saat mengambil album acak: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengambil album acak.")
+        logger.error(f"Error saat mencari lagu: {e}")
+        await update.message.reply_text("Maaf, terjadi kesalahan saat mencari lagu.")
 
-async def get_new_releases(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mengambil dan menampilkan 5 album rilis terbaru."""
-    await update.message.reply_text("✨ Menampilkan 5 rilis album terbaru...")
-    try:
-        results = sp.new_releases(limit=5)
-        albums = results['albums']['items']
-
-        for album in albums:
-            await send_album_info(update, context, album)
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil rilis terbaru: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengambil rilis terbaru.")
-
-# --- Fitur Artis ---
-
-async def artist_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Menampilkan menu untuk fitur-fitur terkait artis."""
-    await update.message.reply_text(
-        "Selamat datang di Menu Artis!\n\n"
-        "Berikut adalah perintah yang bisa kamu gunakan:\n\n"
-        "🎤 /getartist [nama artis] - Mencari detail artis.\n"
-        "🎲 /randomartist - Menampilkan 5 artis acak.\n"
-        "💿 /getartistalbums [nama artis] - Menampilkan album dari artis.\n"
-        "🏆 /gettoptracks [nama artis] - Menampilkan lagu terpopuler dari artis.\n"
-        "🤝 /getrelated [nama artis] - Menampilkan artis serupa.",
-        parse_mode='Markdown'
-    )
-
-async def get_artist_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mencari dan menampilkan detail dari seorang artis."""
+async def search_artists(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mencari artis dan menampilkan detailnya."""
     if not context.args:
-        await update.message.reply_text("Tolong berikan nama artis. Contoh: /getartist Tulus")
+        await update.message.reply_text("Tolong berikan nama artis. Contoh: /cariartist Queen")
         return
-
     query = " ".join(context.args)
     await update.message.reply_text(f"🔍 Mencari artis '{query}'...")
 
     try:
         results = sp.search(q=query, limit=1, type='artist')
-        artist_results = results['artists']['items']
-
-        if not artist_results:
-            safe_query = escape_markdown(query, version=2)
-            await update.message.reply_text(f"Maaf, artis *'{safe_query}'* tidak ditemukan\\.", parse_mode='MarkdownV2')
-            return
-
-        await send_artist_info(update, context, artist_results[0])
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil detail artis: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengambil detail artis.")
-
-async def get_random_artists(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mengambil dan menampilkan 5 artis secara acak."""
-    await update.message.reply_text("🎲 Mengambil 5 artis acak...")
-    try:
-        random_char = random.choice("abcdefghijklmnopqrstuvwxyz")
-        random_offset = random.randint(0, 500)
-        results = sp.search(q=f'artist:{random_char}', type='artist', limit=5, offset=random_offset)
-        
         artists = results['artists']['items']
         if not artists:
-            await update.message.reply_text("Gagal mendapatkan artis acak, coba lagi!")
+            await update.message.reply_text(f"Maaf, artis '{escape_markdown(query, version=2)}' tidak ditemukan\\.", parse_mode='MarkdownV2')
             return
-
-        for artist in artists:
-            await send_artist_info(update, context, artist)
+        
+        await send_artist_info_detailed(update, context, artists[0])
 
     except Exception as e:
-        logger.error(f"Error saat mengambil artis acak: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengambil artis acak.")
+        logger.error(f"Error saat mencari artis: {e}")
+        await update.message.reply_text("Maaf, terjadi kesalahan saat mencari artis.")
 
+async def search_albums(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mencari album dan menampilkan detailnya."""
+    if not context.args:
+        await update.message.reply_text("Tolong berikan nama album. Contoh: /carialbum A Night at the Opera")
+        return
+    query = " ".join(context.args)
+    await update.message.reply_text(f"🔍 Mencari album '{query}'...")
+
+    try:
+        results = sp.search(q=query, limit=1, type='album')
+        albums = results['albums']['items']
+        if not albums:
+            await update.message.reply_text(f"Maaf, album '{escape_markdown(query, version=2)}' tidak ditemukan\\.", parse_mode='MarkdownV2')
+            return
+        
+        # Ambil detail lengkap untuk mendapatkan 'album_type'
+        album_full_details = sp.album(albums[0]['id'])
+        await send_album_info_detailed(update, context, album_full_details)
+
+    except Exception as e:
+        logger.error(f"Error saat mencari album: {e}")
+        await update.message.reply_text("Maaf, terjadi kesalahan saat mencari album.")
+
+# --- Fitur Album (Discovery) ---
+async def album_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Selamat datang di Menu Album Discovery!\n\n🎲 /randomalbum\n✨ /getnewreleases", parse_mode='Markdown')
+async def get_random_albums(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("🎲 Mengambil 5 album acak...");
+    try:
+        results = sp.search(q=f'year:2000-2025 track:{random.choice("abcdefghijklmnopqrstuvwxyz")}', type='album', limit=5, offset=random.randint(0, 500))
+        if not results['albums']['items']: await update.message.reply_text("Gagal mendapatkan album acak, coba lagi!"); return
+        for album in results['albums']['items']: await send_album_info(update, context, album)
+    except Exception as e: logger.error(f"Error saat mengambil album acak: {e}"); await update.message.reply_text("Maaf, terjadi kesalahan.")
+async def get_new_releases(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("✨ Menampilkan 5 rilis album terbaru...");
+    try:
+        results = sp.new_releases(limit=5)
+        for album in results['albums']['items']: await send_album_info(update, context, album)
+    except Exception as e: logger.error(f"Error saat mengambil rilis terbaru: {e}"); await update.message.reply_text("Maaf, terjadi kesalahan.")
+
+# --- Fitur Artis (Discovery) ---
+async def artist_menu(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("Selamat datang di Menu Artis Discovery!\n\n🎲 /randomartist\n💿 /getartistalbums [nama artis]\n🏆 /gettoptracks [nama artis]\n🤝 /getrelated [nama artis]", parse_mode='Markdown')
+async def get_random_artists(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_text("🎲 Mengambil 5 artis acak...");
+    try:
+        random_char = random.choice("abcdefghijklmnopqrstuvwxyz"); query = f'{random_char}%'; random_offset = random.randint(0, 900)
+        results = sp.search(q=query, type='artist', limit=5, offset=random_offset)
+        if not results['artists']['items']: await update.message.reply_text("Gagal mendapatkan artis acak, coba lagi!"); return
+        for artist in results['artists']['items']: await send_artist_info_detailed(update, context, artist)
+    except Exception as e: logger.error(f"Error saat mengambil artis acak: {e}"); await update.message.reply_text("Maaf, terjadi kesalahan.")
 async def get_artist_albums(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mengambil album dari artis yang dicari."""
-    if not context.args:
-        await update.message.reply_text("Tolong berikan nama artis. Contoh: /getartistalbums Coldplay")
-        return
-
-    query = " ".join(context.args)
-    await update.message.reply_text(f"💿 Mencari album dari '{query}'...")
-
+    if not context.args: await update.message.reply_text("Contoh: /getartistalbums Coldplay"); return
+    query = " ".join(context.args); await update.message.reply_text(f"💿 Mencari album dari '{query}'...")
     try:
         results = sp.search(q=query, limit=1, type='artist')
-        artist_results = results['artists']['items']
-
-        if not artist_results:
-            safe_query = escape_markdown(query, version=2)
-            await update.message.reply_text(f"Maaf, artis *'{safe_query}'* tidak ditemukan\\.", parse_mode='MarkdownV2')
-            return
-        
-        artist_id = artist_results[0]['id']
-        albums = sp.artist_albums(artist_id, album_type='album', limit=10)
-
-        if not albums['items']:
-            await update.message.reply_text(f"Artis *'{escape_markdown(query, version=2)}'* tidak memiliki album\\.", parse_mode='MarkdownV2')
-            return
-
-        for album in albums['items']:
-            await send_album_info(update, context, album)
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil album artis: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengambil album artis.")
-
+        if not results['artists']['items']: await update.message.reply_text(f"Maaf, artis *'{escape_markdown(query, version=2)}'* tidak ditemukan\\.", parse_mode='MarkdownV2'); return
+        artist_id = results['artists']['items'][0]['id']; albums = sp.artist_albums(artist_id, album_type='album', limit=10)
+        if not albums['items']: await update.message.reply_text(f"Artis *'{escape_markdown(query, version=2)}'* tidak memiliki album\\.", parse_mode='MarkdownV2'); return
+        for album in albums['items']: await send_album_info(update, context, album)
+    except Exception as e: logger.error(f"Error saat mengambil album artis: {e}"); await update.message.reply_text("Maaf, terjadi kesalahan.")
 async def get_artist_top_tracks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mengambil lagu terpopuler dari artis yang dicari."""
-    if not context.args:
-        await update.message.reply_text("Tolong berikan nama artis. Contoh: /gettoptracks Queen")
-        return
-
-    query = " ".join(context.args)
-    await update.message.reply_text(f"🏆 Mencari lagu terpopuler dari '{query}'...")
-
+    if not context.args: await update.message.reply_text("Contoh: /gettoptracks Queen"); return
+    query = " ".join(context.args); await update.message.reply_text(f"🏆 Mencari lagu terpopuler dari '{query}'...")
     try:
         results = sp.search(q=query, limit=1, type='artist')
-        artist_results = results['artists']['items']
-
-        if not artist_results:
-            safe_query = escape_markdown(query, version=2)
-            await update.message.reply_text(f"Maaf, artis *'{safe_query}'* tidak ditemukan\\.", parse_mode='MarkdownV2')
-            return
-        
-        artist_id = artist_results[0]['id']
-        # Menggunakan 'ID' untuk pasar Indonesia
-        top_tracks = sp.artist_top_tracks(artist_id, country='ID')
-
-        if not top_tracks['tracks']:
-            await update.message.reply_text(f"Tidak dapat menemukan lagu terpopuler untuk *'{escape_markdown(query, version=2)}'*\\.", parse_mode='MarkdownV2')
-            return
-
-        for track in top_tracks['tracks']:
-            await send_track_info(update, context, track)
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil lagu terpopuler: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengambil lagu terpopuler.")
-
+        if not results['artists']['items']: await update.message.reply_text(f"Maaf, artis *'{escape_markdown(query, version=2)}'* tidak ditemukan\\.", parse_mode='MarkdownV2'); return
+        artist_id = results['artists']['items'][0]['id']; top_tracks = sp.artist_top_tracks(artist_id, country='ID')
+        if not top_tracks['tracks']: await update.message.reply_text(f"Tidak dapat menemukan lagu terpopuler untuk *'{escape_markdown(query, version=2)}'*\\.", parse_mode='MarkdownV2'); return
+        for track in top_tracks['tracks']: await send_track_info(update, context, track)
+    except Exception as e: logger.error(f"Error saat mengambil lagu terpopuler: {e}"); await update.message.reply_text("Maaf, terjadi kesalahan.")
 async def get_related_artists(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mengambil artis yang serupa/terkait."""
-    if not context.args:
-        await update.message.reply_text("Tolong berikan nama artis. Contoh: /getrelated Daft Punk")
-        return
-
-    query = " ".join(context.args)
-    await update.message.reply_text(f"🤝 Mencari artis yang terkait dengan '{query}'...")
-
+    if not context.args: await update.message.reply_text("Contoh: /getrelated Daft Punk"); return
+    query = " ".join(context.args); await update.message.reply_text(f"🤝 Mencari artis yang terkait dengan '{query}'...")
     try:
         results = sp.search(q=query, limit=1, type='artist')
-        artist_results = results['artists']['items']
-
-        if not artist_results:
-            safe_query = escape_markdown(query, version=2)
-            await update.message.reply_text(f"Maaf, artis *'{safe_query}'* tidak ditemukan\\.", parse_mode='MarkdownV2')
-            return
-        
-        artist_id = artist_results[0]['id']
-        related_artists = sp.artist_related_artists(artist_id)
-
-        if not related_artists['artists']:
-            await update.message.reply_text(f"Tidak dapat menemukan artis terkait untuk *'{escape_markdown(query, version=2)}'*\\.", parse_mode='MarkdownV2')
-            return
-
+        if not results['artists']['items']: await update.message.reply_text(f"Maaf, artis *'{escape_markdown(query, version=2)}'* tidak ditemukan\\.", parse_mode='MarkdownV2'); return
+        artist_id = results['artists']['items'][0]['id']; related_artists = sp.artist_related_artists(artist_id)
+        if not related_artists['artists']: await update.message.reply_text(f"Tidak dapat menemukan artis terkait untuk *'{escape_markdown(query, version=2)}'*\\.", parse_mode='MarkdownV2'); return
         await update.message.reply_text(f"Berikut 5 artis yang mirip dengan *{escape_markdown(query, version=2)}*:", parse_mode='MarkdownV2')
-        for artist in related_artists['artists'][:5]:
-            await send_artist_info(update, context, artist)
-
-    except Exception as e:
-        logger.error(f"Error saat mengambil artis terkait: {e}")
-        await update.message.reply_text("Maaf, terjadi kesalahan saat mengambil artis terkait.")
+        for artist in related_artists['artists'][:5]: await send_artist_info_detailed(update, context, artist)
+    except Exception as e: logger.error(f"Error saat mengambil artis terkait: {e}"); await update.message.reply_text("Maaf, terjadi kesalahan.")
 
 async def unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Menangani perintah yang tidak dikenali oleh bot."""
@@ -428,24 +316,24 @@ def main() -> None:
     # --- Mendaftarkan semua Handler ke aplikasi ---
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("help", help_command))
-    application.add_handler(CommandHandler("cari", search_music))
+    
+    # Handler untuk fitur pencarian baru
+    application.add_handler(CommandHandler("cari", search_menu))
+    application.add_handler(CommandHandler("caritrack", search_tracks))
+    application.add_handler(CommandHandler("cariartist", search_artists))
+    application.add_handler(CommandHandler("carialbum", search_albums))
 
-    # Handler untuk fitur album
+    # Handler untuk fitur album discovery
     application.add_handler(CommandHandler("album", album_menu))
-    application.add_handler(CommandHandler("getalbum", get_album_details))
     application.add_handler(CommandHandler("randomalbum", get_random_albums))
     application.add_handler(CommandHandler("getnewreleases", get_new_releases))
 
-    # Handler untuk fitur artis
+    # Handler untuk fitur artis discovery
     application.add_handler(CommandHandler("artist", artist_menu))
-    application.add_handler(CommandHandler("getartist", get_artist_details))
     application.add_handler(CommandHandler("randomartist", get_random_artists))
     application.add_handler(CommandHandler("getartistalbums", get_artist_albums))
     application.add_handler(CommandHandler("gettoptracks", get_artist_top_tracks))
     application.add_handler(CommandHandler("getrelated", get_related_artists))
-
-    # Message Handler untuk pencarian langsung (harus setelah command)
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_music))
     
     # Handler untuk perintah yang tidak dikenali (harus diletakkan paling akhir)
     application.add_handler(MessageHandler(filters.COMMAND, unknown))
